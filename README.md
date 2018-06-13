@@ -9,6 +9,3 @@ Automatically create the TAG.
 ```
 python autoMergeGitBranch.py
 ```
-
-## Executable file
-> dist\autoMergeGitBranch\autoMergeGitBranch.exe
