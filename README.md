@@ -7,5 +7,5 @@ Automatically create the TAG.
 
 ## Usage
 ```
-python autoMergeGitBranch.py
+python auto_merge_git_branch.py
 ```
