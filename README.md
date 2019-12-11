@@ -1,6 +1,5 @@
 ## Auto Merge Git Branch
-After a branch is published, the published branch is merged automatically. 
-Automatically create the TAG.
+Merge release branch to development branch. Create release tag.
 
 ## Requirements
 > python 3.6
