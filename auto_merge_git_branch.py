@@ -1,6 +1,7 @@
 '''
 自动合并发布分支
 创建TAG
+转成exe文件 "pyinstaller -F auto_merge_git_branch.py"
 '''
 # coding = utf-8
 import os
@@ -12,37 +13,17 @@ from urllib import request
 from urllib import parse
 from http import cookiejar
 from common import logger
+import configparser
 
-LOGIN_USER = "****"  # stash用户名
-PASS_WORD = "****"  # stash密码
 BRANCH_URL = ("http://stash.igrow.cn/rest/api/latest/projects/{projectkey}/"
               "repos/{repos}/branches")
-DICTS = {'school.igrow.cn': ('WSCH', 'school'),
-         'm.igrow.cn': ('WMOB', 'm'),
-         'boss.igrow.cn': ('WBOS', 'boss'),
-         'baby.igrow.cn': ('WBOOK', 'book'),
-         'yzone.igrow.cn': ('WYZO', 'yzone'),
-         'assets.haoyuyuan.com': ('WASS', 'assets'),
-         'auth.haoyuyuan.com': ('WAUT', 'wauth'),
-         'api-yo.igrow.cn': ('WSCH', 'api-yo'),
-         'api.igrow.cn': ('WAPI', 'api'),
-         'api-crm.igrow.cn': ('APICRM', 'api-crm'),
-         'api': ('WAPI', 'api'),
-         'yzone': ('WYZO', 'yzone'),
-         'm': ('WMOB', 'm'),
-         'school': ('WSCH', 'school'),
-         'auth': ('WAUT', 'wauth'),
-         'boss': ('WBOS', 'boss'),
-         'baby': ('WBOOK', 'book'),
-         'api-crm': ('APICRM', 'api-crm'),
-         'api-yo': ('WSCH', 'api-yo')
-         }
-
 
 def main():
     """自动合并发布分支，创建分支标记。"""
     global log
     log = logger.Logger().getlog()
+    # 获取stash配置
+    stash_config = get_stash_config()
     isexit = "t"
     while isexit == "t":
         # 选择哪种操作
@@ -75,34 +56,54 @@ def main():
         projectname = input("请输入项目名（例：school.igrow.cn）:")
 
         # 发布分支
-        releasebranch = input("请输入发布分支:")
+        releasebranch = input("请输入发布分支:")        
 
         if process == "1":
-            mergebranch(projectname, releasebranch)
+            merge_branch(projectname, releasebranch, stash_config)
             loginfo = ">>>>>项目（%s）合并分支处理完毕。" % (projectname)
             log.info(loginfo)
         elif process == "2":
             version = input("请输入项目版本:")
-            createtag(projectname, releasebranch, version)
+            create_tag(projectname, releasebranch, version)
             loginfo = ">>>>>项目（%s）创建tag处理完毕。" % (projectname)
             log.info(loginfo)
 
         isexit = input("您要继续处理其他项目吗？（t--继续，q--退出）:")
 
+def get_stash_config():
+    """
+    从ini文件获取stash配置
+    """
+    config = configparser.ConfigParser()
+    ini_path = os.path.dirname(os.getcwd()) + '\\config\\jira_stash_config.ini'
+    if not os.path.exists(ini_path):
+        log.error("获取stash配置失败，ini文件路径：%s" % ini_path)
+        return
 
-def getbranches(projectkey, repos):
+    try:
+        config.read(ini_path, encoding='utf-8')
+        log.info("ini配置：%s" % config.sections())
+        return config
+    except IOError as ex:
+        log.error("获取stash配置失败")
+        return
+
+def get_branches(projectkey, repos, stash_config):
     """
     从stash中获取需要处理的分支
     """
-    loginfo = "getbranches(%s, %s)" % (projectkey, repos)
+    loginfo = "get_branches(%s, %s)" % (projectkey, repos)
     log.info(loginfo)
+
+    stash_login_user = stash_config.get('stash_account', 'stash_login_user')
+    stash_pass_word = stash_config.get('stash_account', 'stash_pass_word')
 
     # 登录stash获取cookie
     url = "http://stash.igrow.cn/j_stash_security_check"
 
     postdata = parse.urlencode({
-        "j_username": LOGIN_USER,
-        "j_password": PASS_WORD,
+        "j_username": stash_login_user,
+        "j_password": stash_pass_word,
         "submit": "Log in"
         }).encode('utf-8')
 
@@ -182,26 +183,27 @@ def getbranches(projectkey, repos):
                 branch.append(value['displayId'])
     return branch
 
-
-def mergebranch(projectname, releasebranch):
+def merge_branch(projectname, releasebranch, stash_config):
     """
     合并发布分支
     """
-    loginfo = "mergebranch(%s, %s)" % (projectname, releasebranch)
+    loginfo = "merge_branch(%s, %s)" % (projectname, releasebranch)
     log.info(loginfo)
 
+    dictProjectKey = json.loads(stash_config.get('stash_project', 'project_key'))
+    dictRepos = json.loads(stash_config.get('stash_project', 'repos'))
+
     # 获取项目对应的项目key和仓库名
-    if projectname in DICTS.keys():
-        dictrepos = DICTS[projectname]
-        projectkey = dictrepos[0]
-        repos = dictrepos[1]
+    if projectname in dictProjectKey.keys():
+        projectkey = dictProjectKey[projectname]
+        repos = dictRepos[projectname]
     else:
-        loginfo = "抱歉您输入的项目不在范围内：" + DICTS.keys()
+        loginfo = "抱歉您输入的项目不在范围内：" + repr(dictProjectKey.keys())
         log.error(loginfo)
         return
 
     # 获取需要合并的分支
-    branches = getbranches(projectkey, repos)
+    branches = get_branches(projectkey, repos, stash_config)
     if not branches:
         log.error("抱歉没有您需要合并的分支。")
         return
@@ -244,7 +246,7 @@ def mergebranch(projectname, releasebranch):
                        releasebranch, releasebranch, branch)
         cnt = call(execute)
         # 判断是否合并成功，合并成功则推送到远程分支
-        if cnt.returncode == 0 and "Already up-to-date" in repr(cnt.stdout):
+        if cnt.returncode == 0 and "Already up to date" in repr(cnt.stdout):
             time.sleep(1)
             call('git push origin %s' % (branch))
 
@@ -252,11 +254,11 @@ def mergebranch(projectname, releasebranch):
         log.info(loginfo)
 
 
-def createtag(projectname, releasebranch, version):
+def create_tag(projectname, releasebranch, version):
     """
     创建版本标记
     """
-    loginfo = "createtag(%s, %s, %s)" % (projectname, releasebranch, version)
+    loginfo = "create_tag(%s, %s, %s)" % (projectname, releasebranch, version)
     log.info(loginfo)
 
     # 创建发布分支的tag，推送到远程
@@ -274,7 +276,7 @@ def createtag(projectname, releasebranch, version):
 
     cnt = call("git merge origin/%s" % (releasebranch))
     # 发布分支已经是最新代码时，打上标记创建tag，合并到远程分支
-    if cnt.returncode == 0 and "Already up-to-date" in repr(cnt.stdout):
+    if cnt.returncode == 0 and "Already up to date" in repr(cnt.stdout):
         time.sleep(1)
         tagname = "v" + releasebranch[8:len(releasebranch)]
 
